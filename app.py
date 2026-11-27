@@ -1,10 +1,13 @@
 from datetime import date, timedelta
+from os import environ
 
 import streamlit as st
 
-from pomar import ArvoreFruto, Colheita, Memoria, Poda, validar_peso
+from armazenamento import PomarSQLite
+from pomar import ArvoreFruto, Colheita, Poda, validar_peso
+from saude_ui import apresentar_saude, biblioteca
 
-ARVORES = {
+ARVORES_DEMO = {
     "M-01": ("Macieira", "Bravo de Esmolfe"),
     "P-01": ("Pereira", "Rocha"),
     "C-01": ("Cerejeira", "Burlat"),
@@ -13,13 +16,18 @@ FILTROS = {"Todas": None, "Podas": "Poda", "Colheitas": "Colheita"}
 
 
 def inicializar():
-    memoria = Memoria()
-    hoje = date.today()
-    ArvoreFruto("M-01", memoria).registar_intervencao(Poda(hoje - timedelta(days=18)))
-    ArvoreFruto("M-01", memoria).registar_intervencao(
-        Colheita(hoje - timedelta(days=7), 8)
-    )
-    ArvoreFruto("P-01", memoria).registar_intervencao(Poda(hoje - timedelta(days=12)))
+    memoria = PomarSQLite(environ.get("POMAR_DB_PATH"))
+    if memoria.caminho is None:
+        for codigo, (especie, variedade) in ARVORES_DEMO.items():
+            memoria.adicionar_arvore(codigo, especie, variedade)
+        hoje = date.today()
+        ArvoreFruto("M-01", memoria).registar_intervencao(Poda(hoje - timedelta(days=18)))
+        ArvoreFruto("M-01", memoria).registar_intervencao(
+            Colheita(hoje - timedelta(days=7), 8)
+        )
+        ArvoreFruto("P-01", memoria).registar_intervencao(Poda(hoje - timedelta(days=12)))
+        caso = memoria.observar("M-01", hoje - timedelta(days=5), "Manchas verde-azeitona nas folhas.")
+        memoria.confirmar("M-01", caso, "pedrado-macieira")
     st.session_state.memoria = memoria
     st.session_state.arvore = None
     st.session_state.formulario_aberto = False
@@ -32,11 +40,26 @@ def selecionar_arvore(codigo):
     st.session_state.pop("filtro_historico", None)
 
 
-def apresentar_arvores():
+def apresentar_arvores(bd, arvores):
     st.subheader("Árvores")
-    for codigo, (especie, variedade) in ARVORES.items():
+    if st.session_state.pop("arvore_guardada", False):
+        st.success("Árvore adicionada.")
+    with st.expander("Adicionar árvore", expanded=not arvores):
+        with st.form("nova_arvore"):
+            codigo = st.text_input("Código", placeholder="Ex.: M-04")
+            especie = st.text_input("Espécie", placeholder="Ex.: Macieira")
+            variedade = st.text_input("Variedade", placeholder="Opcional")
+            if st.form_submit_button("Guardar árvore"):
+                try:
+                    bd.adicionar_arvore(codigo, especie, variedade)
+                except ValueError as erro:
+                    st.error(str(erro))
+                else:
+                    st.session_state.arvore_guardada = True
+                    st.rerun()
+    for codigo, (especie, variedade) in arvores.items():
         with st.container(border=True):
-            st.markdown(f"**{especie} · {variedade}**")
+            st.text(" · ".join(filter(None, (especie, variedade))))
             st.caption(codigo)
             st.button(
                 "Ver histórico",
@@ -80,14 +103,19 @@ def registar_colheita(arvore):
         st.rerun()
 
 
-def apresentar_ficha(codigo):
+def apresentar_ficha(codigo, bd, arvores):
     if st.button("← Voltar às árvores", on_click=selecionar_arvore, args=(None,)):
         return
 
-    especie, variedade = ARVORES[codigo]
-    st.subheader(f"{especie} · {variedade}")
+    especie, variedade = arvores[codigo]
+    st.subheader(" · ".join(filter(None, (especie, variedade))))
     st.caption(codigo)
-    arvore = ArvoreFruto(codigo, st.session_state.memoria)
+    seccao = st.radio("Ficha da árvore", ["Histórico", "Saúde"], horizontal=True)
+    if seccao == "Saúde":
+        apresentar_saude(bd, codigo, especie)
+        return
+
+    arvore = ArvoreFruto(codigo, bd)
 
     aviso = st.session_state.pop("aviso_colheita", None)
     if aviso:
@@ -120,10 +148,20 @@ if "memoria" not in st.session_state:
     inicializar()
 
 st.title("Pomar com Memória")
-st.caption("Demonstração com árvores fictícias. Os registos duram durante a sessão.")
-
-codigo = st.session_state.arvore
-if codigo is None:
-    apresentar_arvores()
+bd = st.session_state.memoria
+if bd.caminho is None:
+    st.caption("Demonstração com árvores fictícias. Os registos duram durante a sessão.")
 else:
-    apresentar_ficha(codigo)
+    st.caption("Pomar com registos persistentes.")
+
+pagina = st.sidebar.radio("Navegação", ["Pomar", "Biblioteca de doenças"])
+if pagina == "Biblioteca de doenças":
+    st.subheader("Biblioteca de doenças")
+    biblioteca()
+else:
+    codigo = st.session_state.arvore
+    arvores = bd.arvores()
+    if codigo in arvores:
+        apresentar_ficha(codigo, bd, arvores)
+    else:
+        apresentar_arvores(bd, arvores)

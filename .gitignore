@@ -2,3 +2,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .streamlit/secrets.toml
+
+/dados/
+*.sqlite3
+*.sqlite3-*
