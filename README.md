@@ -2,7 +2,7 @@
 
 Uma aplicação para registar colheitas e consultar o histórico de cada árvore. O projeto nasceu de uma necessidade real: acompanhar um pomar com cerca de 50 árvores sem depender da memória para recordar o que foi feito e quando.
 
-<!-- Após publicar no Streamlit, acrescenta aqui o link direto para a demo. -->
+**[Experimentar a demo do Pomar com Memória](https://pomar-com-memoria.streamlit.app/)**
 
 ## Experimentar
 
